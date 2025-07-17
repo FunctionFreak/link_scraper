@@ -39,8 +39,11 @@ class BingScraper(BaseScraper):
         return 'h2'
     
     def get_excluded_domains(self) -> List[str]:
-        """Exclude Bing/Microsoft domains"""
-        return ['bing.com', 'microsoft.com', 'msn.com', 'microsoftonline.com']
+        """Exclude Bing/Microsoft domains and video platforms"""
+        bing_domains = ['bing.com', 'microsoft.com', 'msn.com', 'microsoftonline.com']
+        # Get video domains from parent class and combine
+        video_domains = super().get_excluded_domains()
+        return bing_domains + video_domains
     
     async def inject_highlighter(self, page: Page) -> str:
         """Inject Bing H2 highlighter JavaScript with organic filtering"""

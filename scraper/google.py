@@ -38,8 +38,11 @@ class GoogleScraper(BaseScraper):
         return 'h3'
     
     def get_excluded_domains(self) -> List[str]:
-        """Exclude Google's own domains"""
-        return ['google.com', 'googleapis.com', 'googleusercontent.com']
+        """Exclude Google's own domains and video platforms"""
+        google_domains = ['google.com', 'googleapis.com', 'googleusercontent.com']
+        # Get video domains from parent class and combine
+        video_domains = super().get_excluded_domains()
+        return google_domains + video_domains
     
     async def inject_highlighter(self, page: Page) -> str:
         """Inject Google H3 highlighter JavaScript"""

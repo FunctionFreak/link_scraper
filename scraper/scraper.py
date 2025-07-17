@@ -212,7 +212,12 @@ class BaseScraper(ABC):
     
     def get_excluded_domains(self) -> List[str]:
         """Return list of domains to exclude from results"""
-        return []
+        # Common video platforms to exclude
+        return [
+            'youtube.com', 'youtu.be', 'm.youtube.com',
+            'vimeo.com', 'dailymotion.com', 'twitch.tv',
+            'tiktok.com', 'instagram.com/reel', 'facebook.com/watch'
+        ]
     
     async def run(self) -> Dict[str, Any]:
         """Main execution method"""
