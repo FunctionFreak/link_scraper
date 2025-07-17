@@ -45,7 +45,7 @@ class BaseScraper(ABC):
     async def setup_browser(self, playwright):
         """Initialize browser with common settings"""
         self.browser = await playwright.chromium.launch(
-            headless=False,
+            headless=(not self.debug),  # Visible only in debug mode
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
@@ -218,73 +218,78 @@ class BaseScraper(ABC):
         """Main execution method"""
         self.start_time = datetime.now()
         
-        async with async_playwright() as playwright:
-            try:
-                # Setup browser
-                await self.setup_browser(playwright)
-                
-                # Navigate to search engine
-                print(f"[{self.__class__.__name__}] 📍 Opening {self.get_search_url()}...")
-                await self.page.goto(self.get_search_url(), wait_until='domcontentloaded')
-                await self.page.wait_for_timeout(3000)
-                
-                # Accept cookies
-                await self.accept_cookies()
-                
-                # Perform search
-                if not await self.perform_search():
-                    return {
-                        'source': self.__class__.__name__.replace('Scraper', ''),
-                        'links': [],
-                        'status': 'failed',
-                        'error': 'Search failed',
-                        'duration': (datetime.now() - self.start_time).total_seconds()
-                    }
-                
-                # Inject and activate highlighter
-                await self.inject_highlighter(self.page)
-                await self.page.wait_for_timeout(500)
-                
-                # Activate highlighting
-                await self.page.evaluate(f"window.activate{self.get_search_url().split('.')[1].title()}{self.get_link_selector().upper()}Highlighting()")
-                print(f"[{self.__class__.__name__}] ✅ Link highlighter activated")
-                await self.page.wait_for_timeout(1000)
-                
-                # Collect links
-                links = await self.collect_links()
-                
-                # Prepare results
-                result = {
-                    'source': self.__class__.__name__.replace('Scraper', ''),
-                    'links': links,
-                    'status': 'success',
-                    'error': None,
-                    'duration': (datetime.now() - self.start_time).total_seconds()
-                }
-                
-                # In debug mode, keep browser open
-                if self.debug:
-                    print(f"\n[{self.__class__.__name__}] 🔍 Debug mode: Browser will stay open...")
-                    print(f"[{self.__class__.__name__}] 💡 You can inspect the search results manually")
-                else:
-                    await self.page.wait_for_timeout(2000)
-                
-                return result
-                
-            except Exception as e:
-                print(f"[{self.__class__.__name__}] ❌ Error: {str(e)}")
+        # Don't use 'async with' to keep browser alive in debug mode
+        playwright = await async_playwright().start()
+        
+        try:
+            # Setup browser
+            await self.setup_browser(playwright)
+            
+            # Navigate to search engine
+            print(f"[{self.__class__.__name__}] 📍 Opening {self.get_search_url()}...")
+            await self.page.goto(self.get_search_url(), wait_until='domcontentloaded')
+            await self.page.wait_for_timeout(3000)
+            
+            # Accept cookies
+            await self.accept_cookies()
+            
+            # Perform search
+            if not await self.perform_search():
                 return {
                     'source': self.__class__.__name__.replace('Scraper', ''),
                     'links': [],
                     'status': 'failed',
-                    'error': str(e),
+                    'error': 'Search failed',
                     'duration': (datetime.now() - self.start_time).total_seconds()
                 }
-                
-            finally:
-                # Simple: if debug mode, don't close browser. Otherwise, close it.
-                if not self.debug and self.browser:
+            
+            # Inject and activate highlighter
+            await self.inject_highlighter(self.page)
+            await self.page.wait_for_timeout(500)
+            
+            # Activate highlighting
+            engine_name = self.__class__.__name__.replace('Scraper', '')  # 'Google' or 'Bing'
+            await self.page.evaluate(f"window.activate{engine_name}{self.get_link_selector().upper()}Highlighting()")
+            print(f"[{self.__class__.__name__}] ✅ Link highlighter activated")
+            await self.page.wait_for_timeout(1000)
+            
+            # Collect links
+            links = await self.collect_links()
+            
+            # Prepare results
+            result = {
+                'source': self.__class__.__name__.replace('Scraper', ''),
+                'links': links,
+                'status': 'success',
+                'error': None,
+                'duration': (datetime.now() - self.start_time).total_seconds()
+            }
+            
+            # In debug mode, keep browser open
+            if self.debug:
+                print(f"\n[{self.__class__.__name__}] 🔍 Debug mode: Browser will stay open...")
+                print(f"[{self.__class__.__name__}] 💡 You can inspect the search results manually")
+            else:
+                await self.page.wait_for_timeout(2000)
+            
+            return result
+            
+        except Exception as e:
+            print(f"[{self.__class__.__name__}] ❌ Error: {str(e)}")
+            return {
+                'source': self.__class__.__name__.replace('Scraper', ''),
+                'links': [],
+                'status': 'failed',
+                'error': str(e),
+                'duration': (datetime.now() - self.start_time).total_seconds()
+            }
+            
+        finally:
+            # Simple: if debug mode, don't close browser. Otherwise, close it.
+            if not self.debug:
+                if self.browser:
                     await self.browser.close()
-                elif self.debug:
-                    print(f"[{self.__class__.__name__}] 🔒 Browser kept open for inspection (debug mode)")
-                # If debug mode is True, browser stays open until program terminates
+                await playwright.stop()
+            else:
+                print(f"[{self.__class__.__name__}] 🔒 Browser kept open for inspection (debug mode)")
+                # Don't stop playwright in debug mode
