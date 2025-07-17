@@ -169,7 +169,7 @@ async def main():
         # Run scrapers
         results = await run_scrapers(config)
         
-        # Display results
+        # Always display results immediately after collection
         format_results(results)
         
         if config['debug']:
@@ -196,10 +196,6 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        # Windows compatibility
-        if sys.platform.startswith('win'):
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\n\n⚠️  Program terminated by user")

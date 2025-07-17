@@ -153,6 +153,11 @@ class BaseScraper(ABC):
                     # Show progress
                     progress = '■' * len(collected_links) + '□' * (self.num_links - len(collected_links))
                     print(f"   [{progress}] {len(collected_links)}/{self.num_links} links collected")
+                    
+                    # Show the link immediately
+                    print(f"   ✅ Link {link['number']}: {link['title'][:60]}...")
+                    print(f"      🔗 {link['url']}")
+                    print(f"      📍 {link['domain']}\n")
             
             if len(collected_links) >= self.num_links:
                 break
