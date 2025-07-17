@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import json
 from abc import ABC, abstractmethod
 from playwright.async_api import async_playwright, Page, BrowserContext
 from typing import List, Dict, Optional, Any
@@ -277,76 +278,121 @@ class BaseScraper(ABC):
             # Don't stop playwright in debug mode
 
 
-def print_banner():
-    """Print application banner"""
-    print("\n" + "="*70)
-    print("🔍 PARALLEL SEARCH SCRAPER - Google & Bing")
-    print("="*70)
-    print("✅ Collects organic search results from both engines simultaneously")
-    print("❌ Filters out: AI summaries, sponsored content, ads")
-    print("="*70 + "\n")
+async def show_loading():
+    """Show loading animation until scraping starts"""
+    import time
+    
+    loading_chars = ['.', '..', '...', '....', '.....']
+    
+    # Show loading animation for a few cycles
+    for _ in range(15):  # Run for about 3 seconds
+        for char in loading_chars:
+            print(f"\rLoading{char}", end='', flush=True)
+            await asyncio.sleep(0.2)
+    
+    print()  # New line after loading
 
 
-def format_results(results: List[Dict[str, Any]]) -> None:
+def format_results(results: List[Dict[str, Any]], output_mode: str = "terminal") -> None:
     """Format and display the collected results with proper grouping"""
-    print("\n" + "="*70)
-    print("📊 SEARCH RESULTS")
-    print("="*70)
+    if output_mode == "terminal":
+        print("\n" + "="*70)
+        print("📊 SEARCH RESULTS")
+        print("="*70)
     
-    # Find Google and Bing results
-    google_links = []
-    bing_links = []
-    google_status = "NOT FOUND"
-    bing_status = "NOT FOUND"
+        # Find Google and Bing results
+        google_links = []
+        bing_links = []
+        google_status = "NOT FOUND"
+        bing_status = "NOT FOUND"
+        
+        for result in results:
+            if result['source'] == 'Google':
+                google_links = result['links'] if result['status'] == 'success' else []
+                google_status = result['status']
+            elif result['source'] == 'Bing':
+                bing_links = result['links'] if result['status'] == 'success' else []
+                bing_status = result['status']
+        
+        # Remove duplicates: filter out Bing links that have same URL as Google links
+        google_urls = {link['url'] for link in google_links}
+        original_bing_count = len(bing_links)
+        bing_links = [link for link in bing_links if link['url'] not in google_urls]
+        removed_duplicates = original_bing_count - len(bing_links)
+        
+        if removed_duplicates > 0:
+            print(f"🔄 Removed {removed_duplicates} duplicate(s) from Bing results (already found in Google)")
+        
+        # GOOGLE RESULTS FIRST
+        print(f"\n🔍 [GOOGLE] - {google_status.upper()} ({len(google_links)} links)")
+        print("-" * 70)
+        
+        if google_links:
+            for i, link in enumerate(google_links, 1):
+                print(f"\n{i}. {link['title']}")
+                print(f"   🔗 {link['url']}")
+                print(f"   📍 {link['domain']}")
+        else:
+            print("\n❌ No Google links collected")
+            if google_status == 'failed':
+                error_msg = next((r.get('error', 'Unknown error') for r in results if r['source'] == 'Google'), 'Unknown error')
+                print(f"   Error: {error_msg}")
+        
+        # BING RESULTS SECOND
+        print(f"\n🔍 [BING] - {bing_status.upper()} ({len(bing_links)} links)")
+        print("-" * 70)
+        
+        if bing_links:
+            for i, link in enumerate(bing_links, 1):
+                print(f"\n{i}. {link['title']}")
+                print(f"   🔗 {link['url']}")
+                print(f"   📍 {link['domain']}")
+        else:
+            print("\n❌ No Bing links collected")
+            if bing_status == 'failed':
+                error_msg = next((r.get('error', 'Unknown error') for r in results if r['source'] == 'Bing'), 'Unknown error')
+                print(f"   Error: {error_msg}")
+        
+        print("\n" + "="*70)
     
-    for result in results:
-        if result['source'] == 'Google':
-            google_links = result['links'] if result['status'] == 'success' else []
-            google_status = result['status']
-        elif result['source'] == 'Bing':
-            bing_links = result['links'] if result['status'] == 'success' else []
-            bing_status = result['status']
-    
-    # Remove duplicates: filter out Bing links that have same URL as Google links
-    google_urls = {link['url'] for link in google_links}
-    original_bing_count = len(bing_links)
-    bing_links = [link for link in bing_links if link['url'] not in google_urls]
-    removed_duplicates = original_bing_count - len(bing_links)
-    
-    if removed_duplicates > 0:
-        print(f"🔄 Removed {removed_duplicates} duplicate(s) from Bing results (already found in Google)")
-    
-    # GOOGLE RESULTS FIRST
-    print(f"\n🔍 [GOOGLE] - {google_status.upper()} ({len(google_links)} links)")
-    print("-" * 70)
-    
-    if google_links:
-        for i, link in enumerate(google_links, 1):
-            print(f"\n{i}. {link['title']}")
-            print(f"   🔗 {link['url']}")
-            print(f"   📍 {link['domain']}")
-    else:
-        print("\n❌ No Google links collected")
-        if google_status == 'failed':
-            error_msg = next((r.get('error', 'Unknown error') for r in results if r['source'] == 'Google'), 'Unknown error')
-            print(f"   Error: {error_msg}")
-    
-    # BING RESULTS SECOND
-    print(f"\n🔍 [BING] - {bing_status.upper()} ({len(bing_links)} links)")
-    print("-" * 70)
-    
-    if bing_links:
-        for i, link in enumerate(bing_links, 1):
-            print(f"\n{i}. {link['title']}")
-            print(f"   🔗 {link['url']}")
-            print(f"   📍 {link['domain']}")
-    else:
-        print("\n❌ No Bing links collected")
-        if bing_status == 'failed':
-            error_msg = next((r.get('error', 'Unknown error') for r in results if r['source'] == 'Bing'), 'Unknown error')
-            print(f"   Error: {error_msg}")
-    
-    print("\n" + "="*70)
+    elif output_mode == "json":
+        # Find Google and Bing results
+        google_links = []
+        bing_links = []
+        
+        for result in results:
+            if result['source'] == 'Google':
+                google_links = result['links'] if result['status'] == 'success' else []
+            elif result['source'] == 'Bing':
+                bing_links = result['links'] if result['status'] == 'success' else []
+        
+        # Remove duplicates: filter out Bing links that have same URL as Google links
+        google_urls = {link['url'] for link in google_links}
+        bing_links = [link for link in bing_links if link['url'] not in google_urls]
+        
+        # Prepare JSON data
+        json_data = {
+            "search_results": {
+                "google": {
+                    "count": len(google_links),
+                    "links": google_links
+                },
+                "bing": {
+                    "count": len(bing_links),
+                    "links": bing_links
+                }
+            },
+            "total_links": len(google_links) + len(bing_links),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Save to JSON file
+        filename = f"search_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, ensure_ascii=False, indent=2)
+        
+        print(f"✅ Results saved to {filename}")
+        print(f"📊 Total links: {json_data['total_links']} (Google: {len(google_links)}, Bing: {len(bing_links)})")
 
 
 async def run_scrapers(query: str, num_links: int, debug: bool) -> List[Dict[str, Any]]:
@@ -429,16 +475,16 @@ async def run_scrapers(query: str, num_links: int, debug: bool) -> List[Dict[str
         ]
 
 
-async def run_search(query: str, num_links: int, debug: bool):
+async def run_search(query: str, num_links: int, debug: bool, result: str = "terminal"):
     """Main execution function"""
-    print_banner()
+    await show_loading()
     
     try:
         # Run scrapers and get results
         results = await run_scrapers(query, num_links, debug)
         
         # Display results immediately after both scrapers complete
-        format_results(results)
+        format_results(results, result)
         
         # Handle debug mode
         if debug:
