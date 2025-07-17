@@ -48,45 +48,60 @@ def get_user_inputs() -> Dict[str, Any]:
     }
 
 def format_results(results: List[Dict[str, Any]]) -> None:
-    """Format and display the collected results"""
+    """Format and display the collected results with proper grouping"""
     print("\n" + "="*70)
     print("📊 SEARCH RESULTS SUMMARY")
     print("="*70)
     
-    total_links = 0
+    # Find Google and Bing results
+    google_links = []
+    bing_links = []
+    google_status = "NOT FOUND"
+    bing_status = "NOT FOUND"
     
     for result in results:
-        source = result['source']
-        status = result['status']
-        duration = result['duration']
-        
-        print(f"\n🔍 {source} Search:")
-        print(f"   Status: {'✅ ' + status.upper() if status == 'success' else '❌ ' + status.upper()}")
-        print(f"   Duration: {duration:.2f} seconds")
-        
-        if status == 'success' and result['links']:
-            print(f"   Links found: {len(result['links'])}")
-            total_links += len(result['links'])
-        elif status == 'failed':
-            print(f"   Error: {result['error']}")
+        if result['source'] == 'Google':
+            google_links = result['links'] if result['status'] == 'success' else []
+            google_status = result['status']
+        elif result['source'] == 'Bing':
+            bing_links = result['links'] if result['status'] == 'success' else []
+            bing_status = result['status']
     
-    # Display all links
-    if total_links > 0:
-        print("\n" + "="*70)
-        print("📋 DETAILED RESULTS")
-        print("="*70)
-        
-        for result in results:
-            if result['status'] == 'success' and result['links']:
-                print(f"\n[{result['source'].upper()}] Results:")
-                print("-" * 50)
-                
-                for link in result['links']:
-                    print(f"\n{link['number']}. {link['title'][:70]}{'...' if len(link['title']) > 70 else ''}")
-                    print(f"   🔗 {link['url']}")
-                    print(f"   📍 {link['domain']}")
+    # Display summary
+    print(f"\n🔍 Google Search: {'✅ ' + google_status.upper() if google_status == 'success' else '❌ ' + google_status.upper()}")
+    print(f"   Links found: {len(google_links)}")
+    
+    print(f"\n🔍 Bing Search: {'✅ ' + bing_status.upper() if bing_status == 'success' else '❌ ' + bing_status.upper()}")
+    print(f"   Links found: {len(bing_links)}")
+    
+    # Display detailed results
+    print("\n" + "="*70)
+    print("📋 DETAILED RESULTS")
+    print("="*70)
+    
+    # Google Results - Always show this section first
+    print(f"\n[GOOGLE] Results:")
+    print("-" * 50)
+    
+    if google_links:
+        for i, link in enumerate(google_links, 1):
+            print(f"\n{i}. {link['title'][:70]}{'...' if len(link['title']) > 70 else ''}")
+            print(f"   🔗 {link['url']}")
+            print(f"   📍 {link['domain']}")
     else:
-        print("\n❌ No links were collected from any search engine.")
+        print("\n❌ No Google links collected")
+    
+    # Bing Results - Always show this section second
+    print(f"\n[BING] Results:")
+    print("-" * 50)
+    
+    if bing_links:
+        for i, link in enumerate(bing_links, 1):
+            print(f"\n{i}. {link['title'][:70]}{'...' if len(link['title']) > 70 else ''}")
+            print(f"   🔗 {link['url']}")
+            print(f"   📍 {link['domain']}")
+    else:
+        print("\n❌ No Bing links collected")
     
     print("\n" + "="*70)
 
