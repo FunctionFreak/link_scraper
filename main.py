@@ -67,6 +67,15 @@ def format_results(results: List[Dict[str, Any]]) -> None:
             bing_links = result['links'] if result['status'] == 'success' else []
             bing_status = result['status']
     
+    # Remove duplicates: filter out Bing links that have same URL as Google links
+    google_urls = {link['url'] for link in google_links}
+    original_bing_count = len(bing_links)
+    bing_links = [link for link in bing_links if link['url'] not in google_urls]
+    removed_duplicates = original_bing_count - len(bing_links)
+    
+    if removed_duplicates > 0:
+        print(f"🔄 Removed {removed_duplicates} duplicate(s) from Bing results (already found in Google)")
+    
     # GOOGLE RESULTS FIRST
     print(f"\n🔍 [GOOGLE] - {google_status.upper()} ({len(google_links)} links)")
     print("-" * 70)
@@ -114,11 +123,6 @@ async def run_scrapers(config: Dict[str, Any]) -> List[Dict[str, Any]]:
         debug=config['debug']
     )
     
-    print(f"\n🚀 Starting parallel search for: '{config['query']}'")
-    print(f"📌 Collecting {config['num_links']} links from each engine...")
-    print(f"🔧 Debug mode: {'ON' if config['debug'] else 'OFF'}")
-    print("-" * 70)
-    
     # Run scrapers in parallel
     start_time = datetime.now()
     
@@ -142,7 +146,6 @@ async def run_scrapers(config: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'error': str(result),
                     'duration': (datetime.now() - start_time).total_seconds()
                 })
-                print(f"[{source}Scraper] ❌ Error: {str(result)}")
             else:
                 processed_results.append(result)
         
@@ -160,12 +163,9 @@ async def run_scrapers(config: Dict[str, Any]) -> List[Dict[str, Any]]:
                         'duration': (datetime.now() - start_time).total_seconds()
                     })
         
-        print(f"\n✅ Both scrapers completed! Collected data in {(datetime.now() - start_time).total_seconds():.2f} seconds")
-        
         return processed_results
         
     except Exception as e:
-        print(f"❌ Critical error in parallel execution: {str(e)}")
         # Return error results for both
         return [
             {
@@ -192,11 +192,6 @@ async def main():
     config = get_user_inputs()
     
     try:
-        # Show debug mode message if enabled
-        if config['debug']:
-            print("\n🔍 Debug mode active - browsers will stay open after completion")
-            print("⚠️  Close browser windows manually when done\n")
-        
         # Run scrapers and get results
         results = await run_scrapers(config)
         
@@ -205,35 +200,22 @@ async def main():
         
         # Handle debug mode
         if config['debug']:
-            print("\n🔍 Debug mode: Browsers are kept open for inspection")
-            print("⚠️  Press Ctrl+C to exit when done")
-            print("💡 You can continue browsing the search results...")
-            print("🔒 Browsers will stay open until you terminate this program")
-            
             try:
                 # Keep the program running indefinitely in debug mode
-                print("\n⏳ Program is running... Keeping browsers alive...")
                 while True:
                     await asyncio.sleep(10)  # Check every 10 seconds
             except KeyboardInterrupt:
-                print("\n\n✅ Exiting debug mode...")
-                print("💡 Browser windows will close when the program exits")
-        else:
-            print("\n✅ Search completed successfully!")
+                pass
         
     except KeyboardInterrupt:
-        print("\n\n⚠️  Search cancelled by user")
         sys.exit(0)
     except Exception as e:
-        print(f"\n❌ Fatal error: {str(e)}")
-        import traceback
-        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n\n⚠️  Program terminated by user")
+        pass
     except Exception as e:
-        print(f"\n❌ Fatal error: {str(e)}")
+        pass
