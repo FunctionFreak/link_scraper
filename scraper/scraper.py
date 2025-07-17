@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from abc import ABC, abstractmethod
 from playwright.async_api import async_playwright, Page, BrowserContext
 from typing import List, Dict, Optional, Any
@@ -274,3 +275,181 @@ class BaseScraper(ABC):
                     await self.browser.close()
                 await playwright.stop()
             # Don't stop playwright in debug mode
+
+
+def print_banner():
+    """Print application banner"""
+    print("\n" + "="*70)
+    print("🔍 PARALLEL SEARCH SCRAPER - Google & Bing")
+    print("="*70)
+    print("✅ Collects organic search results from both engines simultaneously")
+    print("❌ Filters out: AI summaries, sponsored content, ads")
+    print("="*70 + "\n")
+
+
+def format_results(results: List[Dict[str, Any]]) -> None:
+    """Format and display the collected results with proper grouping"""
+    print("\n" + "="*70)
+    print("📊 SEARCH RESULTS")
+    print("="*70)
+    
+    # Find Google and Bing results
+    google_links = []
+    bing_links = []
+    google_status = "NOT FOUND"
+    bing_status = "NOT FOUND"
+    
+    for result in results:
+        if result['source'] == 'Google':
+            google_links = result['links'] if result['status'] == 'success' else []
+            google_status = result['status']
+        elif result['source'] == 'Bing':
+            bing_links = result['links'] if result['status'] == 'success' else []
+            bing_status = result['status']
+    
+    # Remove duplicates: filter out Bing links that have same URL as Google links
+    google_urls = {link['url'] for link in google_links}
+    original_bing_count = len(bing_links)
+    bing_links = [link for link in bing_links if link['url'] not in google_urls]
+    removed_duplicates = original_bing_count - len(bing_links)
+    
+    if removed_duplicates > 0:
+        print(f"🔄 Removed {removed_duplicates} duplicate(s) from Bing results (already found in Google)")
+    
+    # GOOGLE RESULTS FIRST
+    print(f"\n🔍 [GOOGLE] - {google_status.upper()} ({len(google_links)} links)")
+    print("-" * 70)
+    
+    if google_links:
+        for i, link in enumerate(google_links, 1):
+            print(f"\n{i}. {link['title']}")
+            print(f"   🔗 {link['url']}")
+            print(f"   📍 {link['domain']}")
+    else:
+        print("\n❌ No Google links collected")
+        if google_status == 'failed':
+            error_msg = next((r.get('error', 'Unknown error') for r in results if r['source'] == 'Google'), 'Unknown error')
+            print(f"   Error: {error_msg}")
+    
+    # BING RESULTS SECOND
+    print(f"\n🔍 [BING] - {bing_status.upper()} ({len(bing_links)} links)")
+    print("-" * 70)
+    
+    if bing_links:
+        for i, link in enumerate(bing_links, 1):
+            print(f"\n{i}. {link['title']}")
+            print(f"   🔗 {link['url']}")
+            print(f"   📍 {link['domain']}")
+    else:
+        print("\n❌ No Bing links collected")
+        if bing_status == 'failed':
+            error_msg = next((r.get('error', 'Unknown error') for r in results if r['source'] == 'Bing'), 'Unknown error')
+            print(f"   Error: {error_msg}")
+    
+    print("\n" + "="*70)
+
+
+async def run_scrapers(query: str, num_links: int, debug: bool) -> List[Dict[str, Any]]:
+    """Run both scrapers in parallel"""
+    from .google import GoogleScraper
+    from .bing import BingScraper
+    
+    # Create scraper instances
+    google_scraper = GoogleScraper(
+        query=query,
+        num_links=num_links,
+        debug=debug
+    )
+    
+    bing_scraper = BingScraper(
+        query=query,
+        num_links=num_links,
+        debug=debug
+    )
+    
+    # Run scrapers in parallel
+    start_time = datetime.now()
+    
+    try:
+        # Run both scrapers simultaneously and wait for both to complete
+        results = await asyncio.gather(
+            google_scraper.run(),
+            bing_scraper.run(),
+            return_exceptions=True
+        )
+        
+        # Handle any exceptions
+        processed_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                source = ['Google', 'Bing'][i]
+                processed_results.append({
+                    'source': source,
+                    'links': [],
+                    'status': 'failed',
+                    'error': str(result),
+                    'duration': (datetime.now() - start_time).total_seconds()
+                })
+            else:
+                processed_results.append(result)
+        
+        # Ensure we have both results
+        if len(processed_results) < 2:
+            # Add missing results
+            sources = [r.get('source', '') for r in processed_results]
+            for source in ['Google', 'Bing']:
+                if source not in sources:
+                    processed_results.append({
+                        'source': source,
+                        'links': [],
+                        'status': 'failed',
+                        'error': 'Scraper failed to start',
+                        'duration': (datetime.now() - start_time).total_seconds()
+                    })
+        
+        return processed_results
+        
+    except Exception as e:
+        # Return error results for both
+        return [
+            {
+                'source': 'Google',
+                'links': [],
+                'status': 'failed',
+                'error': str(e),
+                'duration': (datetime.now() - start_time).total_seconds()
+            },
+            {
+                'source': 'Bing',
+                'links': [],
+                'status': 'failed',
+                'error': str(e),
+                'duration': (datetime.now() - start_time).total_seconds()
+            }
+        ]
+
+
+async def run_search(query: str, num_links: int, debug: bool):
+    """Main execution function"""
+    print_banner()
+    
+    try:
+        # Run scrapers and get results
+        results = await run_scrapers(query, num_links, debug)
+        
+        # Display results immediately after both scrapers complete
+        format_results(results)
+        
+        # Handle debug mode
+        if debug:
+            try:
+                # Keep the program running indefinitely in debug mode
+                while True:
+                    await asyncio.sleep(10)  # Check every 10 seconds
+            except KeyboardInterrupt:
+                pass
+        
+    except KeyboardInterrupt:
+        sys.exit(0)
+    except Exception as e:
+        sys.exit(1)
