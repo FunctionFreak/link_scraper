@@ -50,7 +50,7 @@ def get_user_inputs() -> Dict[str, Any]:
 def format_results(results: List[Dict[str, Any]]) -> None:
     """Format and display the collected results with proper grouping"""
     print("\n" + "="*70)
-    print("📊 SEARCH RESULTS SUMMARY")
+    print("📊 SEARCH RESULTS")
     print("="*70)
     
     # Find Google and Bing results
@@ -67,41 +67,35 @@ def format_results(results: List[Dict[str, Any]]) -> None:
             bing_links = result['links'] if result['status'] == 'success' else []
             bing_status = result['status']
     
-    # Display summary
-    print(f"\n🔍 Google Search: {'✅ ' + google_status.upper() if google_status == 'success' else '❌ ' + google_status.upper()}")
-    print(f"   Links found: {len(google_links)}")
-    
-    print(f"\n🔍 Bing Search: {'✅ ' + bing_status.upper() if bing_status == 'success' else '❌ ' + bing_status.upper()}")
-    print(f"   Links found: {len(bing_links)}")
-    
-    # Display detailed results
-    print("\n" + "="*70)
-    print("📋 DETAILED RESULTS")
-    print("="*70)
-    
-    # Google Results - Always show this section first
-    print(f"\n[GOOGLE] Results:")
-    print("-" * 50)
+    # GOOGLE RESULTS FIRST
+    print(f"\n🔍 [GOOGLE] - {google_status.upper()} ({len(google_links)} links)")
+    print("-" * 70)
     
     if google_links:
         for i, link in enumerate(google_links, 1):
-            print(f"\n{i}. {link['title'][:70]}{'...' if len(link['title']) > 70 else ''}")
+            print(f"\n{i}. {link['title']}")
             print(f"   🔗 {link['url']}")
             print(f"   📍 {link['domain']}")
     else:
         print("\n❌ No Google links collected")
+        if google_status == 'failed':
+            error_msg = next((r.get('error', 'Unknown error') for r in results if r['source'] == 'Google'), 'Unknown error')
+            print(f"   Error: {error_msg}")
     
-    # Bing Results - Always show this section second
-    print(f"\n[BING] Results:")
-    print("-" * 50)
+    # BING RESULTS SECOND
+    print(f"\n🔍 [BING] - {bing_status.upper()} ({len(bing_links)} links)")
+    print("-" * 70)
     
     if bing_links:
         for i, link in enumerate(bing_links, 1):
-            print(f"\n{i}. {link['title'][:70]}{'...' if len(link['title']) > 70 else ''}")
+            print(f"\n{i}. {link['title']}")
             print(f"   🔗 {link['url']}")
             print(f"   📍 {link['domain']}")
     else:
         print("\n❌ No Bing links collected")
+        if bing_status == 'failed':
+            error_msg = next((r.get('error', 'Unknown error') for r in results if r['source'] == 'Bing'), 'Unknown error')
+            print(f"   Error: {error_msg}")
     
     print("\n" + "="*70)
 
@@ -122,34 +116,14 @@ async def run_scrapers(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     
     print(f"\n🚀 Starting parallel search for: '{config['query']}'")
     print(f"📌 Collecting {config['num_links']} links from each engine...")
-    print(f"🔧 Debug mode: {'ON' if config['debug'] else 'OFF'}\n")
+    print(f"🔧 Debug mode: {'ON' if config['debug'] else 'OFF'}")
+    print("-" * 70)
     
     # Run scrapers in parallel
     start_time = datetime.now()
     
-    # If debug mode, run with special handling
-    if config['debug']:
-        print("🔍 Debug mode active - browsers will stay open")
-        print("⚠️  Close browser windows manually when done\n")
-        
-        # Create tasks
-        tasks = [
-            asyncio.create_task(google_scraper.run()),
-            asyncio.create_task(bing_scraper.run())
-        ]
-        
-        # Wait for both to complete their scraping (not browser closing)
-        results = []
-        for task in tasks:
-            try:
-                result = await task
-                results.append(result)
-            except Exception as e:
-                print(f"❌ Task error: {str(e)}")
-        
-        return results
-    else:
-        # Normal mode - use gather
+    try:
+        # Run both scrapers simultaneously and wait for both to complete
         results = await asyncio.gather(
             google_scraper.run(),
             bing_scraper.run(),
@@ -168,10 +142,47 @@ async def run_scrapers(config: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'error': str(result),
                     'duration': (datetime.now() - start_time).total_seconds()
                 })
+                print(f"[{source}Scraper] ❌ Error: {str(result)}")
             else:
                 processed_results.append(result)
         
+        # Ensure we have both results
+        if len(processed_results) < 2:
+            # Add missing results
+            sources = [r.get('source', '') for r in processed_results]
+            for source in ['Google', 'Bing']:
+                if source not in sources:
+                    processed_results.append({
+                        'source': source,
+                        'links': [],
+                        'status': 'failed',
+                        'error': 'Scraper failed to start',
+                        'duration': (datetime.now() - start_time).total_seconds()
+                    })
+        
+        print(f"\n✅ Both scrapers completed! Collected data in {(datetime.now() - start_time).total_seconds():.2f} seconds")
+        
         return processed_results
+        
+    except Exception as e:
+        print(f"❌ Critical error in parallel execution: {str(e)}")
+        # Return error results for both
+        return [
+            {
+                'source': 'Google',
+                'links': [],
+                'status': 'failed',
+                'error': str(e),
+                'duration': (datetime.now() - start_time).total_seconds()
+            },
+            {
+                'source': 'Bing',
+                'links': [],
+                'status': 'failed',
+                'error': str(e),
+                'duration': (datetime.now() - start_time).total_seconds()
+            }
+        ]
 
 async def main():
     """Main execution function"""
@@ -181,22 +192,32 @@ async def main():
     config = get_user_inputs()
     
     try:
-        # Run scrapers
+        # Show debug mode message if enabled
+        if config['debug']:
+            print("\n🔍 Debug mode active - browsers will stay open after completion")
+            print("⚠️  Close browser windows manually when done\n")
+        
+        # Run scrapers and get results
         results = await run_scrapers(config)
         
-        # Always display results immediately after collection
+        # Display results immediately after both scrapers complete
         format_results(results)
         
+        # Handle debug mode
         if config['debug']:
-            print("\n🔍 Debug mode: Browsers are still open for inspection")
-            print("⚠️  Press Ctrl+C to exit when done\n")
+            print("\n🔍 Debug mode: Browsers are kept open for inspection")
+            print("⚠️  Press Ctrl+C to exit when done")
+            print("💡 You can continue browsing the search results...")
+            print("🔒 Browsers will stay open until you terminate this program")
             
             try:
-                # Keep the program running
+                # Keep the program running indefinitely in debug mode
+                print("\n⏳ Program is running... Keeping browsers alive...")
                 while True:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(10)  # Check every 10 seconds
             except KeyboardInterrupt:
                 print("\n\n✅ Exiting debug mode...")
+                print("💡 Browser windows will close when the program exits")
         else:
             print("\n✅ Search completed successfully!")
         

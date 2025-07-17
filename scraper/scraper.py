@@ -76,7 +76,7 @@ class BaseScraper(ABC):
                     button = self.page.locator(selector).first
                     if await button.count() > 0 and await button.is_visible():
                         await button.click()
-                        print(f"[{self.__class__.__name__}] ✅ Cookies accepted")
+                        # Silent cookie acceptance - no print
                         await self.page.wait_for_timeout(1000)
                         return True
                 except:
@@ -116,8 +116,23 @@ class BaseScraper(ABC):
             await self.page.wait_for_timeout(500)
             await search_box.press("Enter")
             
-            # Wait for results
-            await self.page.wait_for_selector(self.get_link_selector(), timeout=15000)
+            # Wait for results with better selectors for each engine
+            await self.page.wait_for_timeout(3000)  # Give more time for results to load
+            
+            # Check if we have search results based on engine type
+            if "Bing" in self.__class__.__name__:
+                # For Bing, wait for the search results container
+                try:
+                    await self.page.wait_for_selector('#b_results, .b_algo, ol#b_results li', timeout=10000)
+                except:
+                    print(f"[{self.__class__.__name__}] ⚠️  Search results container not found, continuing anyway")
+            else:
+                # For Google, wait for search results
+                try:
+                    await self.page.wait_for_selector('#search, .g, #rso', timeout=10000)
+                except:
+                    print(f"[{self.__class__.__name__}] ⚠️  Search results container not found, continuing anyway")
+            
             await self.page.wait_for_timeout(2000)
             
             print(f"[{self.__class__.__name__}] ✅ Search completed")
@@ -134,11 +149,15 @@ class BaseScraper(ABC):
         scroll_attempts = 0
         max_scroll_attempts = 20
         
-        print(f"\n[{self.__class__.__name__}] 📌 Collecting links...")
+        print(f"[{self.__class__.__name__}] 📌 Collecting links...")
         
         while len(collected_links) < self.num_links and scroll_attempts < max_scroll_attempts:
             # Get current highlighted links
-            current_links = await self.page.evaluate("window.getHighlightedLinksInfo()")
+            try:
+                current_links = await self.page.evaluate("window.getHighlightedLinksInfo()")
+            except Exception as e:
+                print(f"[{self.__class__.__name__}] ⚠️  Error getting links: {str(e)}")
+                current_links = []
             
             # Add new links to collection
             for link in current_links:
@@ -150,38 +169,45 @@ class BaseScraper(ABC):
                     collected_links.append(link)
                     collected_urls.add(link['url'])
                     
-                    # Show progress
+                    # Show progress only
                     progress = '■' * len(collected_links) + '□' * (self.num_links - len(collected_links))
-                    print(f"   [{progress}] {len(collected_links)}/{self.num_links} links collected")
-                    
-                    # Show the link immediately
-                    print(f"   ✅ Link {link['number']}: {link['title'][:60]}...")
-                    print(f"      🔗 {link['url']}")
-                    print(f"      📍 {link['domain']}\n")
+                    print(f"\r   [{self.__class__.__name__}] [{progress}] {len(collected_links)}/{self.num_links} links collected", end='', flush=True)
             
             if len(collected_links) >= self.num_links:
                 break
                 
             # Scroll down
-            await self.page.evaluate("window.scrollBy(0, 400)")
-            await self.page.wait_for_timeout(1500)
+            try:
+                await self.page.evaluate("window.scrollBy(0, 400)")
+                await self.page.wait_for_timeout(1500)
+            except Exception as e:
+                print(f"\n[{self.__class__.__name__}] ⚠️  Error during scrolling: {str(e)}")
+                break
             
             scroll_attempts += 1
             
             # Check if at bottom
-            at_bottom = await self.page.evaluate("""
-                () => {
-                    return (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 100;
-                }
-            """)
+            try:
+                at_bottom = await self.page.evaluate("""
+                    () => {
+                        return (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 100;
+                    }
+                """)
+            except:
+                at_bottom = False
             
             if at_bottom:
-                print(f"   [{self.__class__.__name__}] ℹ️  Reached end of results")
+                print(f"\n   [{self.__class__.__name__}] ℹ️  Reached end of results")
                 break
         
+        # Add newline after progress bar
+        print()  # Move to next line after progress bar
+
         if len(collected_links) < self.num_links:
-            print(f"   [{self.__class__.__name__}] ⚠️  Only found {len(collected_links)} links")
-        
+            print(f"   [{self.__class__.__name__}] ⚠️  Only found {len(collected_links)} out of {self.num_links} requested links")
+        else:
+            print(f"   [{self.__class__.__name__}] ✅ Successfully collected {len(collected_links)} links")
+
         return collected_links
     
     def get_excluded_domains(self) -> List[str]:
@@ -227,20 +253,23 @@ class BaseScraper(ABC):
                 # Collect links
                 links = await self.collect_links()
                 
-                # Keep browser open if debug mode
-                if self.debug:
-                    print(f"\n[{self.__class__.__name__}] 🔍 Debug mode: Browser will stay open...")
-                    await asyncio.sleep(3600)  # Keep open for 1 hour or until closed
-                else:
-                    await self.page.wait_for_timeout(2000)
-                
-                return {
+                # Prepare results
+                result = {
                     'source': self.__class__.__name__.replace('Scraper', ''),
                     'links': links,
                     'status': 'success',
                     'error': None,
                     'duration': (datetime.now() - self.start_time).total_seconds()
                 }
+                
+                # In debug mode, keep browser open
+                if self.debug:
+                    print(f"\n[{self.__class__.__name__}] 🔍 Debug mode: Browser will stay open...")
+                    print(f"[{self.__class__.__name__}] 💡 You can inspect the search results manually")
+                else:
+                    await self.page.wait_for_timeout(2000)
+                
+                return result
                 
             except Exception as e:
                 print(f"[{self.__class__.__name__}] ❌ Error: {str(e)}")
@@ -253,5 +282,9 @@ class BaseScraper(ABC):
                 }
                 
             finally:
+                # Simple: if debug mode, don't close browser. Otherwise, close it.
                 if not self.debug and self.browser:
                     await self.browser.close()
+                elif self.debug:
+                    print(f"[{self.__class__.__name__}] 🔒 Browser kept open for inspection (debug mode)")
+                # If debug mode is True, browser stays open until program terminates

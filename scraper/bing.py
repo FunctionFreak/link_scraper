@@ -106,10 +106,21 @@ class BingScraper(BaseScraper):
                 if (!h2) return false;
                 
                 // First, check if it's in a clear organic search result container
-                const organicContainer = h2.closest('.b_algo, .b_algoheader, li.b_algo, div.b_algo');
+                const organicContainer = h2.closest('.b_algo, .b_algoheader, li.b_algo, div.b_algo, [data-priority], .b_title, .b_caption');
                 if (organicContainer) {
                     console.log('Found H2 in organic container:', h2.textContent.trim().substring(0, 50));
                     return true;
+                }
+                
+                // Check if H2 is within a result item that has organic indicators
+                const resultItem = h2.closest('li, .result, [role="listitem"], .b_attribution');
+                if (resultItem) {
+                    // Look for organic indicators in the result item
+                    const hasOrganicIndicators = resultItem.querySelector('.b_caption, .b_attribution, .b_adurl, cite');
+                    if (hasOrganicIndicators) {
+                        console.log('Found H2 with organic indicators:', h2.textContent.trim().substring(0, 50));
+                        return true;
+                    }
                 }
                 
                 // Get the text content and surrounding elements
